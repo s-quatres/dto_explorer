@@ -36,8 +36,8 @@
   </div>
 
   <script src="js/common.js"></script>
+  <script src="https://unpkg.com/three@0.175.0/build/three.min.js"></script>
   <script>
-    const THREE = window.THREE || (ForceGraph3D().three && ForceGraph3D().three()) || null;
 
     let graph = null;
     let fullData = null;
@@ -121,10 +121,7 @@
         })
         .nodeThreeObject(node => {
           if (node.type === 'directory') {
-            const sprite = new window.SpriteText(node.name);
-            sprite.color = 'rgba(255,255,255,0.4)';
-            sprite.textHeight = 3;
-            return sprite;
+            return makeTextSprite(node.name);
           }
           return false; // default sphere
         })
@@ -150,14 +147,30 @@
       if (fullData) renderGraph(buildGraphData(fullData.tree, showDirs));
     });
 
+    /** Create a text sprite using a canvas texture (no external dependency). */
+    function makeTextSprite(text) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const fontSize = 48;
+      ctx.font = `${fontSize}px sans-serif`;
+      const width = ctx.measureText(text).width + 16;
+      canvas.width = width;
+      canvas.height = fontSize + 16;
+      ctx.font = `${fontSize}px sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillText(text, 8, fontSize);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+      const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      const sprite = new THREE.Sprite(material);
+      const scale = 0.15;
+      sprite.scale.set(width * scale, (fontSize + 16) * scale, 1);
+      return sprite;
+    }
+
     (async () => {
       try {
-        // Load SpriteText for directory labels
-        const spriteScript = document.createElement('script');
-        spriteScript.src = 'https://unpkg.com/three-spritetext';
-        document.head.appendChild(spriteScript);
-        await new Promise(r => { spriteScript.onload = r; spriteScript.onerror = r; });
-
         fullData = await loadJSON('data/codebase_structure.json');
         setTimestamp('timestamp', fullData.generated_at);
         buildLegend(fullData.language_stats);
