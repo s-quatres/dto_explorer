@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Codebase — DTO Explorer</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://unpkg.com/3d-force-graph@1"></script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-brand"><span>DTO</span> Explorer</div>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="changes.html">Most Changed Files</a></li>
+      <li><a href="visualization.html">3D Codebase</a></li>
+      <li><a href="insights.html">Commit Insights</a></li>
+    </ul>
+    <div class="navbar-meta" id="timestamp"></div>
+  </nav>
+
+  <div style="padding: 0.75rem 2rem 0;">
+    <div class="viz-controls">
+      <span style="color: var(--text-muted); font-size: 0.85rem; margin-right: 0.5rem;">Color = language &nbsp;|&nbsp; Size = lines of code &nbsp;|&nbsp; Glow = recent change frequency</span>
+      <button class="tab-btn" id="btn-reset">Reset Camera</button>
+      <button class="tab-btn" id="btn-top">Top View</button>
+      <label style="color: var(--text-muted); font-size: 0.85rem; margin-left: auto; display: flex; align-items: center; gap: 0.4rem;">
+        <input type="checkbox" id="chk-dirs" checked> Show directories
+      </label>
+    </div>
+    <div class="viz-legend" id="legend"></div>
+  </div>
+
+  <div class="viz-container" id="graph-container">
+    <div class="loading" id="loading">Loading 3D visualization...</div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script>
+    const THREE = window.THREE || (ForceGraph3D().three && ForceGraph3D().three()) || null;
+
+    let graph = null;
+    let fullData = null;
+    let showDirs = true;
+
+    function buildGraphData(tree, showDirectories) {
+      const nodes = [];
+      const links = [];
+      const idMap = new Map();
+
+      for (const node of tree.nodes) {
+        if (!showDirectories && node.type === 'directory') continue;
+        idMap.set(node.id, true);
+
+        const isFile = node.type === 'file';
+        nodes.push({
+          id: node.id,
+          name: node.name,
+          path: node.path || node.name,
+          type: node.type,
+          language: node.language || '',
+          color: isFile ? (node.color || '#CCC') : 'rgba(255,255,255,0.15)',
+          loc: node.loc || 0,
+          heat: node.heat || 0,
+          val: isFile ? Math.max(1, Math.sqrt(node.loc || 1)) : 3,
+        });
+      }
+
+      for (const link of tree.links) {
+        if (idMap.has(link.source) && idMap.has(link.target)) {
+          links.push({ source: link.source, target: link.target });
+        }
+      }
+
+      return { nodes, links };
+    }
+
+    function renderGraph(data) {
+      const container = document.getElementById('graph-container');
+      document.getElementById('loading').style.display = 'none';
+
+      if (graph) {
+        graph.graphData(data);
+        return;
+      }
+
+      graph = ForceGraph3D()(container)
+        .graphData(data)
+        .nodeLabel(n => {
+          if (n.type === 'directory') return `📁 ${n.path || n.name}`;
+          return `📄 ${n.path}<br>Language: ${n.language}<br>LOC: ${n.loc.toLocaleString()}<br>Recent changes: ${Math.round(n.heat * 100)}%`;
+        })
+        .nodeVal('val')
+        .nodeColor(n => {
+          if (n.type === 'directory') return 'rgba(255,255,255,0.12)';
+          if (n.heat > 0.5) {
+            // Hot files glow orange-red
+            const r = Math.round(255);
+            const g = Math.round(100 * (1 - n.heat));
+            return `rgb(${r},${g},50)`;
+          }
+          return n.color;
+        })
+        .nodeOpacity(0.9)
+        .linkColor(() => 'rgba(255,255,255,0.06)')
+        .linkWidth(0.3)
+        .dagMode('radialout')
+        .dagLevelDistance(40)
+        .d3AlphaDecay(0.04)
+        .d3VelocityDecay(0.3)
+        .warmupTicks(60)
+        .cooldownTicks(100)
+        .backgroundColor('#0d1117')
+        .onNodeClick(node => {
+          const dist = 60;
+          const distRatio = 1 + dist / Math.hypot(node.x, node.y, node.z);
+          graph.cameraPosition(
+            { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+            node, 1000
+          );
+        })
+        .nodeThreeObject(node => {
+          if (node.type === 'directory') {
+            const sprite = new window.SpriteText(node.name);
+            sprite.color = 'rgba(255,255,255,0.4)';
+            sprite.textHeight = 3;
+            return sprite;
+          }
+          return false; // default sphere
+        })
+        .nodeThreeObjectExtend(true);
+    }
+
+    function buildLegend(langStats) {
+      const el = document.getElementById('legend');
+      el.innerHTML = langStats.slice(0, 12).map(l =>
+        `<span class="legend-item"><span class="legend-dot" style="background:${l.color}"></span>${l.language} (${l.files})</span>`
+      ).join('');
+    }
+
+    // Controls
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      if (graph) graph.cameraPosition({ x: 0, y: 0, z: 400 }, { x: 0, y: 0, z: 0 }, 1000);
+    });
+    document.getElementById('btn-top').addEventListener('click', () => {
+      if (graph) graph.cameraPosition({ x: 0, y: 400, z: 0 }, { x: 0, y: 0, z: 0 }, 1000);
+    });
+    document.getElementById('chk-dirs').addEventListener('change', (e) => {
+      showDirs = e.target.checked;
+      if (fullData) renderGraph(buildGraphData(fullData.tree, showDirs));
+    });
+
+    (async () => {
+      try {
+        // Load SpriteText for directory labels
+        const spriteScript = document.createElement('script');
+        spriteScript.src = 'https://unpkg.com/three-spritetext';
+        document.head.appendChild(spriteScript);
+        await new Promise(r => { spriteScript.onload = r; spriteScript.onerror = r; });
+
+        fullData = await loadJSON('data/codebase_structure.json');
+        setTimestamp('timestamp', fullData.generated_at);
+        buildLegend(fullData.language_stats);
+        renderGraph(buildGraphData(fullData.tree, showDirs));
+      } catch (e) {
+        document.getElementById('loading').textContent = 'No data available yet. Run the GitHub Actions workflow to generate data.';
+        console.error(e);
+      }
+    })();
+  </script>
+</body>
+</html>

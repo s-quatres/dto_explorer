@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Most Changed Files — DTO Explorer</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-brand"><span>DTO</span> Explorer</div>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="changes.html">Most Changed Files</a></li>
+      <li><a href="visualization.html">3D Codebase</a></li>
+      <li><a href="insights.html">Commit Insights</a></li>
+    </ul>
+    <div class="navbar-meta" id="timestamp"></div>
+  </nav>
+
+  <div class="container">
+    <h1 class="page-title">Most Changed Files</h1>
+    <p class="page-subtitle">Top 20 files ranked by total lines changed (additions + deletions) across different time windows.</p>
+
+    <div class="tabs" id="period-tabs">
+      <button class="tab-btn active" data-period="week">Last Week</button>
+      <button class="tab-btn" data-period="month">Last Month</button>
+      <button class="tab-btn" data-period="year">Last Year</button>
+      <button class="tab-btn" data-period="five_years">Last 5 Years</button>
+    </div>
+
+    <div class="card">
+      <div class="chart-container" style="max-height:600px;">
+        <canvas id="barChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Details</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>File</th>
+            <th>Additions</th>
+            <th>Deletions</th>
+            <th>Total Changes</th>
+          </tr>
+        </thead>
+        <tbody id="file-table"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script>
+    let chartInstance = null;
+    let allData = null;
+
+    function renderPeriod(period) {
+      const items = allData.periods[period] || [];
+
+      // Chart
+      const labels = items.map(f => {
+        const parts = f.file.split('/');
+        return parts.length > 2 ? '.../' + parts.slice(-2).join('/') : f.file;
+      });
+
+      if (chartInstance) chartInstance.destroy();
+      const ctx = document.getElementById('barChart').getContext('2d');
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Additions',
+              data: items.map(f => f.additions),
+              backgroundColor: '#3fb950',
+            },
+            {
+              label: 'Deletions',
+              data: items.map(f => f.deletions),
+              backgroundColor: '#f85149',
+            },
+          ],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { color: '#8b949e' } },
+            tooltip: {
+              callbacks: {
+                title: (ctx) => items[ctx[0].dataIndex].file,
+              },
+            },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              ticks: { color: '#8b949e' },
+              grid: { color: 'rgba(48,54,61,0.5)' },
+            },
+            y: {
+              stacked: true,
+              ticks: { color: '#e6edf3', font: { family: 'monospace', size: 11 } },
+              grid: { display: false },
+            },
+          },
+        },
+      });
+
+      // Table
+      const tbody = document.getElementById('file-table');
+      tbody.innerHTML = items.map((f, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td class="file-path">${f.file}</td>
+          <td class="additions">+${formatNumber(f.additions)}</td>
+          <td class="deletions">-${formatNumber(f.deletions)}</td>
+          <td class="changes">${formatNumber(f.changes)}</td>
+        </tr>
+      `).join('');
+
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No changes found in this period.</td></tr>';
+      }
+    }
+
+    (async () => {
+      try {
+        allData = await loadJSON('data/file_changes.json');
+        setTimestamp('timestamp', allData.generated_at);
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderPeriod(btn.dataset.period);
+          });
+        });
+
+        renderPeriod('week');
+      } catch (e) {
+        document.getElementById('file-table').innerHTML =
+          '<tr><td colspan="5" class="empty-state">No data available yet. Run the GitHub Actions workflow.</td></tr>';
+      }
+    })();
+  </script>
+</body>
+</html>

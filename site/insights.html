@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commit Insights — DTO Explorer</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-brand"><span>DTO</span> Explorer</div>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="changes.html">Most Changed Files</a></li>
+      <li><a href="visualization.html">3D Codebase</a></li>
+      <li><a href="insights.html">Commit Insights</a></li>
+    </ul>
+    <div class="navbar-meta" id="timestamp"></div>
+  </nav>
+
+  <div class="container">
+    <h1 class="page-title">Commit Insights</h1>
+    <p class="page-subtitle">Classification of commits by type, contributor patterns, and development activity analysis.</p>
+
+    <div class="stats-grid" id="fun-stats">
+      <div class="loading">Loading stats...</div>
+    </div>
+
+    <div class="chart-row">
+      <div class="card">
+        <div class="card-title">Commit Type Distribution</div>
+        <div class="chart-container" style="max-height:350px;">
+          <canvas id="doughnutChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Commits by Weekday</div>
+        <div class="chart-container" style="max-height:350px;">
+          <canvas id="weekdayChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Commit Types Over Time</div>
+      <div class="chart-container" style="max-height:400px;">
+        <canvas id="timelineChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Top Contributors</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Author</th>
+            <th>Total</th>
+            <th>Features</th>
+            <th>Bug Fixes</th>
+            <th>Refactors</th>
+            <th>Chores</th>
+            <th>Other</th>
+          </tr>
+        </thead>
+        <tbody id="authors-table"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script>
+    const chartDefaults = {
+      color: '#8b949e',
+      borderColor: 'rgba(48,54,61,0.5)',
+    };
+
+    function renderDoughnut(distribution) {
+      new Chart(document.getElementById('doughnutChart'), {
+        type: 'doughnut',
+        data: {
+          labels: distribution.map(d => d.type),
+          datasets: [{
+            data: distribution.map(d => d.count),
+            backgroundColor: distribution.map(d => d.color),
+            borderWidth: 0,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: { color: '#e6edf3', padding: 12, font: { size: 12 } },
+            },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                  const pct = ((ctx.raw / total) * 100).toFixed(1);
+                  return ` ${ctx.label}: ${ctx.raw.toLocaleString()} (${pct}%)`;
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    function renderWeekday(weekdayData) {
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      new Chart(document.getElementById('weekdayChart'), {
+        type: 'bar',
+        data: {
+          labels: days,
+          datasets: [{
+            label: 'Commits',
+            data: days.map(d => weekdayData[d] || 0),
+            backgroundColor: '#58a6ff',
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#8b949e' }, grid: { display: false } },
+            y: { ticks: { color: '#8b949e' }, grid: { color: 'rgba(48,54,61,0.5)' } },
+          },
+        },
+      });
+    }
+
+    function renderTimeline(timeline, categories) {
+      const colors = {
+        feature: '#4CAF50', bugfix: '#F44336', refactor: '#FF9800',
+        docs: '#2196F3', test: '#9C27B0', ci: '#00BCD4',
+        deps: '#795548', chore: '#607D8B', perf: '#FFEB3B', other: '#9E9E9E',
+      };
+
+      const datasets = categories
+        .filter(cat => cat !== 'other')
+        .map(cat => ({
+          label: cat,
+          data: timeline.map(t => t[cat] || 0),
+          backgroundColor: colors[cat] || '#999',
+          borderColor: colors[cat] || '#999',
+          fill: true,
+          tension: 0.3,
+        }));
+
+      new Chart(document.getElementById('timelineChart'), {
+        type: 'line',
+        data: {
+          labels: timeline.map(t => t.month),
+          datasets,
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: { color: '#e6edf3', boxWidth: 12, padding: 10 },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { color: '#8b949e', maxTicksLimit: 24 },
+              grid: { color: 'rgba(48,54,61,0.3)' },
+            },
+            y: {
+              stacked: true,
+              ticks: { color: '#8b949e' },
+              grid: { color: 'rgba(48,54,61,0.5)' },
+            },
+          },
+          interaction: { mode: 'index', intersect: false },
+        },
+      });
+    }
+
+    function renderAuthors(authors) {
+      const tbody = document.getElementById('authors-table');
+      tbody.innerHTML = authors.map((a, i) => {
+        const b = a.breakdown;
+        return `<tr>
+          <td>${i + 1}</td>
+          <td><strong>${a.author}</strong></td>
+          <td class="changes">${formatNumber(a.total)}</td>
+          <td class="additions">${(b.feature || 0)}</td>
+          <td class="deletions">${(b.bugfix || 0)}</td>
+          <td>${(b.refactor || 0)}</td>
+          <td>${(b.chore || 0) + (b.deps || 0)}</td>
+          <td>${(b.other || 0) + (b.docs || 0) + (b.test || 0) + (b.ci || 0) + (b.perf || 0)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function renderFunStats(stats) {
+      document.getElementById('fun-stats').innerHTML = `
+        <div class="stat-card"><div class="stat-value">${formatNumber(stats.total_commits)}</div><div class="stat-label">Total Commits</div></div>
+        <div class="stat-card"><div class="stat-value">${stats.unique_authors}</div><div class="stat-label">Unique Authors</div></div>
+        <div class="stat-card"><div class="stat-value">${stats.busiest_weekday}</div><div class="stat-label">Busiest Day</div></div>
+        <div class="stat-card"><div class="stat-value">${stats.avg_message_length}</div><div class="stat-label">Avg Msg Length</div></div>
+        <div class="stat-card"><div class="stat-value">${formatDate(stats.first_commit_date)}</div><div class="stat-label">First Commit</div></div>
+        <div class="stat-card"><div class="stat-value">${formatDate(stats.latest_commit_date)}</div><div class="stat-label">Latest Commit</div></div>
+      `;
+    }
+
+    (async () => {
+      try {
+        const data = await loadJSON('data/commit_types.json');
+        setTimestamp('timestamp', data.generated_at);
+        renderFunStats(data.fun_stats);
+        renderDoughnut(data.distribution);
+        renderWeekday(data.fun_stats.weekday_distribution);
+        renderTimeline(data.timeline, data.categories);
+        renderAuthors(data.authors);
+      } catch (e) {
+        document.getElementById('fun-stats').innerHTML = '<div class="empty-state">No data available yet. Run the GitHub Actions workflow.</div>';
+        console.error(e);
+      }
+    })();
+  </script>
+</body>
+</html>
