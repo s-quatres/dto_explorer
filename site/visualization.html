@@ -36,7 +36,6 @@
   </div>
 
   <script src="js/common.js"></script>
-  <script src="https://unpkg.com/three@0.175.0/build/three.min.js"></script>
   <script>
 
     let graph = null;
@@ -118,14 +117,7 @@
             { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
             node, 1000
           );
-        })
-        .nodeThreeObject(node => {
-          if (node.type === 'directory') {
-            return makeTextSprite(node.name);
-          }
-          return false; // default sphere
-        })
-        .nodeThreeObjectExtend(true);
+        });
     }
 
     function buildLegend(langStats) {
@@ -146,28 +138,6 @@
       showDirs = e.target.checked;
       if (fullData) renderGraph(buildGraphData(fullData.tree, showDirs));
     });
-
-    /** Create a text sprite using a canvas texture (no external dependency). */
-    function makeTextSprite(text) {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const fontSize = 48;
-      ctx.font = `${fontSize}px sans-serif`;
-      const width = ctx.measureText(text).width + 16;
-      canvas.width = width;
-      canvas.height = fontSize + 16;
-      ctx.font = `${fontSize}px sans-serif`;
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.fillText(text, 8, fontSize);
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.needsUpdate = true;
-      const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-      const sprite = new THREE.Sprite(material);
-      const scale = 0.15;
-      sprite.scale.set(width * scale, (fontSize + 16) * scale, 1);
-      return sprite;
-    }
 
     (async () => {
       try {
